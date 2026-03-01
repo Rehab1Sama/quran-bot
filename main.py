@@ -1,8 +1,72 @@
+import os
+import telebot
+import requests
+from telebot import types
 import http.server
 import socketserver
 import threading
 
-# كود صغير لفتح بورت وهمي عشان رندر ما يطفي البوت
+# جلب التوكن من إعدادات Render
+TOKEN = os.getenv('BOT_TOKEN')
+bot = telebot.TeleBot(TOKEN)
+
+# قائمة القراء المعرفين في API المنصة العالمية
+RECITERS = {
+    "المنشاوي (المجود)": "ar.minshawi",
+    "الحصري": "ar.husary",
+    "عبدالباسط (المجود)": "ar.abdulsamad",
+    "مشاري العفاسي": "ar.alafasy",
+    "ياسر الدوسري": "ar.yasseradosari",
+    "ماهر المعيقلي": "ar.mahermuaiqly",
+    "ناصر القطامي": "ar.nasser_alqatami",
+    "سعود الشريم": "ar.saoodshuraym",
+    "عبدالرحمن السديس": "ar.as-sudais",
+    "أحمد العجمي": "ar.ahmedajamy",
+    "فارس عباد": "ar.faresabbad",
+    "سعد الغامدي": "ar.saad_al_ghamidi",
+    "أبو بكر الشاطري": "ar.abu_bakr_ash-shatree"
+}
+
+user_data = {} # لتخزين خيارات المستخدم مؤقتاً
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [types.InlineKeyboardButton(text=name, callback_data=f"reciter_{id}") for name, id in RECITERS.items()]
+    markup.add(*buttons)
+    bot.send_message(message.chat.id, "✨ مرحباً بكِ في بوت القرآن الكريم\n\nالرجاء اختيار القارئ من القائمة التالية:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('reciter_'))
+def handle_reciter_choice(call):
+    reciter_id = call.data.replace('reciter_', '')
+    user_data[call.message.chat.id] = {'reciter': reciter_id}
+    bot.answer_callback_query(call.id)
+    msg = bot.send_message(call.message.chat.id, "تم اختيار القارئ بنجاح ✅\n\nالآن أرسلي السورة والآية بهذا الشكل (مثلاً 2:255):")
+    bot.register_next_step_handler(msg, process_quran_request)
+
+def process_quran_request(message):
+    chat_id = message.chat.id
+    if chat_id not in user_data:
+        bot.send_message(chat_id, "الرجاء البدء بـ /start أولاً.")
+        return
+
+    try:
+        surah, ayah = message.text.split(':')
+        reciter = user_data[chat_id]['reciter']
+        
+        # طلب الرابط من API المنصة العالمية
+        url = f"https://api.alquran.cloud/v1/ayah/{surah}:{ayah}/{reciter}"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            audio_url = response.json()['data']['audio']
+            bot.send_audio(chat_id, audio_url, caption=f"📖 سورة رقم {surah} - آية رقم {ayah}\nتم جلبها من المنصة الرسمية.")
+        else:
+            bot.send_message(chat_id, "عذراً، لم أجد هذه الآية. تأكدي من الأرقام (السور من 1-114).")
+    except:
+        bot.send_message(chat_id, "يرجى إرسال الطلب بشكل صحيح، مثال: 1:5")
+
+# كود الخادم الوهمي لـ Render لضمان بقاء البوت Live
 def start_server():
     PORT = 8080
     handler = http.server.SimpleHTTPRequestHandler
@@ -11,134 +75,4 @@ def start_server():
 
 threading.Thread(target=start_server, daemon=True).start()
 
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import os
-import json
-
-# --- بياناتك ---
-OWNER_ID = 6993426656  # فقط أنت من يمكنه إرسال التلاوات
-
-# --- مسارات التخزين ---
-PRIVATE_DIR = "private_recitations"
-PRIVATE_JSON = "private_data.json"
-
-# --- القوائم ---
-main_menu = [
-    [InlineKeyboardButton("📖 قرآن", callback_data="quran")],
-    [InlineKeyboardButton("🤲 دعاء", callback_data="dua")],
-    [InlineKeyboardButton("📚 كتاب", callback_data="book")]
-]
-
-quran_menu = [
-    [InlineKeyboardButton("🧮 حدد نصابك", callback_data="official")],
-    [InlineKeyboardButton("🎧 تلاوة مختارة", callback_data="private")],
-    [InlineKeyboardButton("⬅ رجوع", callback_data="main")]
-]
-
-official_readers = [
-    [InlineKeyboardButton("عبدالباسط", callback_data="reader_abd")],
-    [InlineKeyboardButton("الحصري", callback_data="reader_husary")],
-    [InlineKeyboardButton("⬅ رجوع", callback_data="quran")]
-]
-
-# --- تحميل التلاوات الخاصة ---
-private_readers = []
-if os.path.exists(PRIVATE_JSON):
-    with open(PRIVATE_JSON, "r", encoding="utf-8") as f:
-        private_data = json.load(f)
-        for reader in private_data.keys():
-            private_readers.append([InlineKeyboardButton(reader, callback_data=f"private_{reader}")])
-        private_readers.append([InlineKeyboardButton("⬅ رجوع", callback_data="quran")])
-else:
-    private_data = {}
-
-# --- أوامر ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup(main_menu)
-    await update.message.reply_text("مرحبًا! اختر القسم:", reply_markup=keyboard)
-
-# --- التعامل مع الأزرار ---
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if data == "main":
-        await query.edit_message_text("اختر القسم:", reply_markup=InlineKeyboardMarkup(main_menu))
-
-    elif data == "quran":
-        await query.edit_message_text("اختر نوع القرآن:", reply_markup=InlineKeyboardMarkup(quran_menu))
-
-    elif data == "official":
-        await query.edit_message_text("اختر القارئ الرسمي:", reply_markup=InlineKeyboardMarkup(official_readers))
-
-    elif data == "private":
-        # إعادة تحميل private_readers من JSON لضمان تحديثها
-        if os.path.exists(PRIVATE_JSON):
-            with open(PRIVATE_JSON, "r", encoding="utf-8") as f:
-                private_data = json.load(f)
-            private_readers.clear()
-            for reader in private_data.keys():
-                private_readers.append([InlineKeyboardButton(reader, callback_data=f"private_{reader}")])
-            private_readers.append([InlineKeyboardButton("⬅ رجوع", callback_data="quran")])
-        await query.edit_message_text("اختر قارئك الخاص:", reply_markup=InlineKeyboardMarkup(private_readers))
-
-    elif data.startswith("reader_") or data.startswith("private_"):
-        reader_name = data.replace("reader_", "").replace("private_", "")
-        await query.edit_message_text(f"تم اختيار القارئ: {reader_name}\n(ستتم إضافة خيارات الجزء والسورة لاحقًا)")
-
-    elif data == "dua":
-        await query.edit_message_text("قسم الدعاء (تطوير لاحقًا)")
-
-    elif data == "book":
-        await query.edit_message_text("قسم الكتب (تطوير لاحقًا)")
-
-# --- استقبال تلاواتك الخاصة فقط ---
-async def handle_my_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    if user.id != OWNER_ID:
-        await update.message.reply_text("⚠ فقط صاحب البوت يمكن إضافة التلاوات.")
-        return
-
-    audio = update.message.audio or update.message.document
-    if audio:
-        caption = update.message.caption or "Unknown"
-        reader = caption.strip()
-
-        # إنشاء المجلد إذا لم يكن موجود
-        reader_dir = os.path.join(PRIVATE_DIR, reader)
-        os.makedirs(reader_dir, exist_ok=True)
-
-        # حفظ الملف
-        file_path = os.path.join(reader_dir, audio.file_name)
-        file = await audio.get_file()
-        await file.download_to_drive(file_path)
-
-        # تحديث JSON
-        if os.path.exists(PRIVATE_JSON):
-            with open(PRIVATE_JSON, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            data = {}
-
-        if reader not in data:
-            data[reader] = []
-
-        data[reader].append({"title": audio.file_name, "file": file_path})
-
-        with open(PRIVATE_JSON, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-
-        await update.message.reply_text(f"✅ تم حفظ التلاوة لـ {reader}")
-
-# --- التطبيق ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(MessageHandler(filters.AUDIO | filters.Document.ALL, handle_my_audio))
-
-app.run_polling()
+bot.polling(none_stop=True)
