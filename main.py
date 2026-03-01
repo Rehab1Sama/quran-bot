@@ -1,3 +1,17 @@
+import http.server
+import socketserver
+import threading
+
+# كود صغير لفتح بورت وهمي عشان رندر ما يطفي البوت
+def start_server():
+    PORT = 8080
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), handler) as httpd:
+        httpd.serve_forever()
+
+threading.Thread(target=start_server, daemon=True).start()
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import os
