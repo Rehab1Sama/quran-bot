@@ -1,26 +1,52 @@
 import telebot
 import json
 import os
+import requests
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from googleapiclient.http import MediaFileUpload
+import tempfile
 
+# ---------------------------
+# إعداد البوت
+# ---------------------------
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("ضع TELEGRAM_BOT_TOKEN في Environment Variables")
-
 bot = telebot.TeleBot(TOKEN)
 
-# تحميل JSON القراء والأذكار
-with open("reciters.json","r",encoding="utf-8") as f:
-    reciters_data = json.load(f)["قائمة_القراء"]
+# ---------------------------
+# إعداد Google Drive
+# ---------------------------
+if not os.getenv("GOOGLE_CREDENTIALS"):
+    raise ValueError("ضع GOOGLE_CREDENTIALS في Environment Variables")
 
-with open("adhkar.json","r",encoding="utf-8") as f:
+creds = Credentials.from_service_account_info(json.loads(os.getenv("GOOGLE_CREDENTIALS")))
+drive_service = build('drive', 'v3', credentials=creds)
+
+# هنا ضع ID المجلد في Drive حيث ستُرفع التلاوات
+DRIVE_FOLDER_ID = "ضع_هنا_folder_id"
+
+# ---------------------------
+# تحميل الأذكار
+# ---------------------------
+with open("adhkar.json", "r", encoding="utf-8") as f:
     adhkar = json.load(f)
 
-# تلاوات المستخدمين الخاصة
+# ---------------------------
+# تخزين تلاوات المستخدمين
+# الصيغة: {chat_id: [{"name": "تلاوة 1", "url": "..."}]}
 user_recitations = {}
+
+# ---------------------------
+# تخزين تقدم المستخدم للأذكار
+# ---------------------------
 user_positions = {}
 
-# 🌿 الواجهة الرئيسية
+# ---------------------------
+# الواجهة الرئيسية
+# ---------------------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -29,148 +55,86 @@ def send_welcome(message):
     markup.row("🎵 تلاوات مختارة")
     bot.send_message(message.chat.id, "أهلاً بك في بوت أَثَــر ✨", reply_markup=markup)
 
-# 🌿 الأذكار تفاعلي
+# ---------------------------
+# الأذكار
+# ---------------------------
 @bot.message_handler(func=lambda m: m.text == "🌿 الأذكار")
 def start_adhkar(message):
     chat_id = message.chat.id
-    user_positions[chat_id] = {"section":"الصباح","index":0}
+    user_positions[chat_id] = {"section": "الصباح", "index": 0}
     send_next_adhkar(chat_id)
 
 def send_next_adhkar(chat_id):
     pos = user_positions[chat_id]
-    if pos["index"] < len(adhkar[pos["section"]]):
-        text = adhkar[pos["section"]][pos["index"]]
+    section = pos["section"]
+    index = pos["index"]
+    if index < len(adhkar[section]):
+        text = adhkar[section][index]
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("التالي ➡️",callback_data="next_adhkar"))
-        bot.send_message(chat_id,text,reply_markup=markup)
+        markup.add(InlineKeyboardButton("التالي ➡️", callback_data="next_adhkar"))
+        bot.send_message(chat_id, text, reply_markup=markup)
         pos["index"] += 1
     else:
-        bot.send_message(chat_id,"✅ انتهت الأذكار 🌸")
+        bot.send_message(chat_id, "✅ انتهت الأذكار لهذا القسم 🌸")
 
-@bot.callback_query_handler(func=lambda c: c.data=="next_adhkar")
+@bot.callback_query_handler(func=lambda c: c.data == "next_adhkar")
 def handle_next_adhkar(call):
-    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
+    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
     send_next_adhkar(call.message.chat.id)
 
-# 🎵 تلاوات مختارة
-@bot.message_handler(func=lambda m: m.text=="🎵 تلاوات مختارة")
-def show_user_rec(message):
+# ---------------------------
+# تلاوات مختارة (من Google Drive)
+# ---------------------------
+@bot.message_handler(func=lambda m: m.text == "🎵 تلاوات مختارة")
+def show_user_recitations(message):
     chat_id = message.chat.id
-    recs = user_recitations.get(chat_id,[])
+    recs = user_recitations.get(chat_id, [])
     if not recs:
-        bot.send_message(chat_id,"لا توجد تلاوات محفوظة")
+        bot.send_message(chat_id, "لا توجد تلاوات محفوظة بعد.")
         return
     markup = InlineKeyboardMarkup()
     for r in recs:
-        markup.add(InlineKeyboardButton(r["name"],callback_data=f"user_{r['url']}"))
-    bot.send_message(chat_id,"اختر تلاوة:",reply_markup=markup)
+        markup.add(InlineKeyboardButton(r["name"], callback_data=f"user_rec_{r['id']}"))
+    bot.send_message(chat_id, "اختر التلاوة:", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("user_"))
+@bot.callback_query_handler(func=lambda c: c.data.startswith("user_rec_"))
 def send_user_rec(call):
-    url = call.data.replace("user_","")
-    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
-    bot.send_audio(call.message.chat.id,url)
+    chat_id = call.message.chat.id
+    rec_id = call.data.replace("user_rec_", "")
+    rec = next((r for r in user_recitations[chat_id] if r['id'] == rec_id), None)
+    if rec:
+        bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
+        bot.send_audio(chat_id, rec['url'])
 
-@bot.message_handler(content_types=["audio"])
+# ---------------------------
+# رفع تلاوات جديدة من المستخدم على Google Drive
+# ---------------------------
+@bot.message_handler(content_types=['audio'])
 def save_user_rec(message):
     chat_id = message.chat.id
     file_info = bot.get_file(message.audio.file_id)
-    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
-    rec_name = message.audio.file_name or f"تلاوة {len(user_recitations.get(chat_id,[]))+1}"
-    user_recitations.setdefault(chat_id,[]).append({"name":rec_name,"url":url})
-    bot.send_message(chat_id,f"تم حفظ التلاوة: {rec_name} ✅")
+    file_path = file_info.file_path
+    file_name = message.audio.file_name or f"تلاوة {len(user_recitations.get(chat_id, []))+1}"
 
-# 📖 القرآن
-@bot.message_handler(func=lambda m: m.text=="📖 القرآن")
-def send_reciters(message):
-    markup = InlineKeyboardMarkup()
-    row=[]
-    for i, r in enumerate(reciters_data, start=1):
-        row.append(InlineKeyboardButton(r["name"],callback_data=f"reciter_{i-1}"))
-        if len(row)==3:
-            markup.add(*row); row=[]
-    if row: markup.add(*row)
-    bot.send_message(message.chat.id,"اختر القارئ:",reply_markup=markup)
+    # تحميل مؤقت للملف
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    downloaded = bot.download_file(file_path)
+    temp_file.write(downloaded)
+    temp_file.close()
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("reciter_"))
-def handle_reciter(call):
-    idx=int(call.data.split("_")[1])
-    rec=reciters_data[idx]
-    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
-    markup=InlineKeyboardMarkup()
-    # سور الـ 114
-    for i in range(1,115):
-        name=f"{i:03}"
-        markup.add(InlineKeyboardButton(f"سورة {name}",callback_data=f"sura_{idx}_{i}"))
-    # خيار الصفحات
-    if rec["has_pages"]:
-        markup.add(InlineKeyboardButton("📑 اختيار نطاق صفحات",callback_data=f"pages_{idx}"))
-    bot.send_message(call.message.chat.id,f"اختر السورة أو الصفحات لـ {rec['name']}:",reply_markup=markup)
+    # رفع الملف على Google Drive
+    file_metadata = {'name': file_name, 'parents': [DRIVE_FOLDER_ID]}
+    media = MediaFileUpload(temp_file.name, mimetype='audio/mpeg')
+    uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    file_id = uploaded_file.get('id')
+    share_link = f"https://drive.google.com/uc?id={file_id}&export=download"
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("sura_"))
-def send_sura(call):
-    parts=call.data.split("_")
-    idx=int(parts[1]); s_id=int(parts[2])
-    rec=reciters_data[idx]
-    audio_url=f"{rec['server']}/{s_id:03}.mp3"
-    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
-    bot.send_audio(call.message.chat.id,audio_url)
+    # تخزين رابط المشاركة في الذاكرة
+    user_recitations.setdefault(chat_id, []).append({"name": file_name, "url": share_link, "id": file_id})
 
-# تشغيل البوت
-bot.infinity_polling()        count = users[user_id]["tasbeeh"]
+    bot.send_message(chat_id, f"تم حفظ تلاوتك: {file_name} ✅")
 
-        keyboard = [
-            [InlineKeyboardButton("➕ سبح", callback_data="addtasbeeh")],
-            [InlineKeyboardButton("🔄 تصفير", callback_data="resettasbeeh")],
-            [InlineKeyboardButton("⬅ رجوع", callback_data="back")]
-        ]
-
-        await query.edit_message_text(
-            f"🧮 عداد التسبيح\n\nعدد التسبيحات: {count}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data == "addtasbeeh":
-        users = load_users()
-        user_id = str(query.from_user.id)
-        users[user_id]["tasbeeh"] += 1
-        save_users(users)
-        count = users[user_id]["tasbeeh"]
-
-        await query.edit_message_text(
-            f"🧮 عداد التسبيح\n\nعدد التسبيحات: {count}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ سبح", callback_data="addtasbeeh")],
-                [InlineKeyboardButton("🔄 تصفير", callback_data="resettasbeeh")],
-                [InlineKeyboardButton("⬅ رجوع", callback_data="back")]
-            ])
-        )
-
-    elif data == "resettasbeeh":
-        users = load_users()
-        user_id = str(query.from_user.id)
-        users[user_id]["tasbeeh"] = 0
-        save_users(users)
-        await query.edit_message_text(
-            "تم تصفير العداد ✅",
-            reply_markup=main_menu()
-        )
-
-    elif data == "back":
-        await query.edit_message_text(
-            "🌿 القائمة الرئيسية:",
-            reply_markup=main_menu()
-        )
-
-    else:
-        await query.edit_message_text(
-            "🚧 هذا القسم قيد التطوير...",
-            reply_markup=main_menu()
-        )
-
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buttons))
-    print("Bot is running...")
-    app.run_polling()
+# ---------------------------
+# لتشغيل البوت بثبات
+# ---------------------------
+bot.infinity_polling()
