@@ -1,0 +1,124 @@
+{
+  "قائمة_القراء": [
+    {
+      "name": "مشاري راشد العفاسي",
+      "server": "https://server8.mp3quran.net/afasy",
+      "has_pages": true
+    },
+    {
+      "name": "ماهر المعيقلي",
+      "server": "https://server8.mp3quran.net/maher",
+      "has_pages": true
+    },
+    {
+      "name": "سعود الشريم",
+      "server": "https://server8.mp3quran.net/shuraim",
+      "has_pages": false
+    },
+    {
+      "name": "سعد الغامدي",
+      "server": "https://server8.mp3quran.net/ghamdi",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالباسط عبدالصمد",
+      "server": "https://server8.mp3quran.net/basit",
+      "has_pages": false
+    },
+    {
+      "name": "الحصري",
+      "server": "https://server8.mp3quran.net/husary",
+      "has_pages": false
+    },
+    {
+      "name": "أحمد العجمي",
+      "server": "https://server8.mp3quran.net/ahmedajamy",
+      "has_pages": false
+    },
+    {
+      "name": "خالد الجليل",
+      "server": "https://server8.mp3quran.net/khaledjalil",
+      "has_pages": false
+    },
+    {
+      "name": "إدريس أبكر",
+      "server": "https://server8.mp3quran.net/abkar",
+      "has_pages": false
+    },
+    {
+      "name": "بندر بليلة",
+      "server": "https://server8.mp3quran.net/bilalah",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالرحمن السديس",
+      "server": "https://server8.mp3quran.net/sudais",
+      "has_pages": false
+    },
+    {
+      "name": "محمد جبريل",
+      "server": "https://server8.mp3quran.net/gibreel",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالله بصفر",
+      "server": "https://server8.mp3quran.net/basfar",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالله الكعبي",
+      "server": "https://server8.mp3quran.net/alkabi",
+      "has_pages": false
+    },
+    {
+      "name": "محمد أيوب",
+      "server": "https://server8.mp3quran.net/ayoub",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالله رشاد",
+      "server": "https://server8.mp3quran.net/rashad",
+      "has_pages": false
+    },
+    {
+      "name": "ماجد المهيلب",
+      "server": "https://server8.mp3quran.net/majeed",
+      "has_pages": false
+    },
+    {
+      "name": "لايف عمر المعيقلي",
+      "server": "https://server8.mp3quran.net/maher",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالله السالم",
+      "server": "https://server8.mp3quran.net/alsalem",
+      "has_pages": false
+    },
+    {
+      "name": "سلمان العودة",
+      "server": "https://server8.mp3quran.net/salman",
+      "has_pages": false
+    },
+    {
+      "name": "زياد الشامي",
+      "server": "https://server8.mp3quran.net/ziad",
+      "has_pages": false
+    },
+    {
+      "name": "فهد الكندري",
+      "server": "https://server8.mp3quran.net/kandari",
+      "has_pages": false
+    },
+    {
+      "name": "محمد الصديق المنشاوي",
+      "server": "https://server8.mp3quran.net/minshawi",
+      "has_pages": false
+    },
+    {
+      "name": "عبدالله الطريري",
+      "server": "https://server8.mp3quran.net/triri",
+      "has_pages": false
+    }
+  ]
+}
