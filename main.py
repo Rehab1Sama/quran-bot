@@ -1,113 +1,123 @@
+import telebot
 import json
 import os
-import random
-from datetime import datetime
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("ضع TELEGRAM_BOT_TOKEN في Environment Variables")
 
-USERS_FILE = "users.json"
+bot = telebot.TeleBot(TOKEN)
 
-# إنشاء ملف المستخدمين إذا غير موجود
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump({}, f)
+# تحميل JSON القراء والأذكار
+with open("reciters.json","r",encoding="utf-8") as f:
+    reciters_data = json.load(f)["قائمة_القراء"]
 
-def load_users():
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+with open("adhkar.json","r",encoding="utf-8") as f:
+    adhkar = json.load(f)
 
-def save_users(data):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# تلاوات المستخدمين الخاصة
+user_recitations = {}
+user_positions = {}
 
-# آيات مدمجة
-AYAT = [
-    "﴿ وَقُل رَّبِّ زِدْنِي عِلْمًا ﴾ [طه:114]",
-    "﴿ إِنَّ مَعَ الْعُسْرِ يُسْرًا ﴾ [الشرح:6]",
-    "﴿ وَاللَّهُ خَيْرُ الرَّازِقِينَ ﴾ [الجمعة:11]",
-    "﴿ أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ ﴾ [الرعد:28]"
-]
+# 🌿 الواجهة الرئيسية
+@bot.message_handler(commands=["start"])
+def send_welcome(message):
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("📖 القرآن", "🌿 الأذكار")
+    markup.row("🔢 عداد التسبيح", "⚙️ الإعدادات")
+    markup.row("🎵 تلاوات مختارة")
+    bot.send_message(message.chat.id, "أهلاً بك في بوت أَثَــر ✨", reply_markup=markup)
 
-ADHKAR = {
-    "morning": "🌅 أذكار الصباح:\n\nسبحان الله وبحمده (100 مرة)",
-    "evening": "🌇 أذكار المساء:\n\nأعوذ بكلمات الله التامات من شر ما خلق (3 مرات)",
-    "sleep": "🌙 أذكار النوم:\n\nباسمك اللهم أموت وأحيا"
-}
+# 🌿 الأذكار تفاعلي
+@bot.message_handler(func=lambda m: m.text == "🌿 الأذكار")
+def start_adhkar(message):
+    chat_id = message.chat.id
+    user_positions[chat_id] = {"section":"الصباح","index":0}
+    send_next_adhkar(chat_id)
 
-def main_menu():
-    keyboard = [
-        [InlineKeyboardButton("📖 القرآن الكريم", callback_data="quran")],
-        [InlineKeyboardButton("🎙 تلاواتي الخاصة", callback_data="myrecitations")],
-        [InlineKeyboardButton("📿 الأذكار", callback_data="adhkar")],
-        [InlineKeyboardButton("🌟 آية اليوم", callback_data="ayah")],
-        [InlineKeyboardButton("🧮 عداد التسبيح", callback_data="tasbeeh")],
-        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+def send_next_adhkar(chat_id):
+    pos = user_positions[chat_id]
+    if pos["index"] < len(adhkar[pos["section"]]):
+        text = adhkar[pos["section"]][pos["index"]]
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("التالي ➡️",callback_data="next_adhkar"))
+        bot.send_message(chat_id,text,reply_markup=markup)
+        pos["index"] += 1
+    else:
+        bot.send_message(chat_id,"✅ انتهت الأذكار 🌸")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    users = load_users()
-    if str(user.id) not in users:
-        users[str(user.id)] = {"tasbeeh": 0}
-        save_users(users)
+@bot.callback_query_handler(func=lambda c: c.data=="next_adhkar")
+def handle_next_adhkar(call):
+    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
+    send_next_adhkar(call.message.chat.id)
 
-    text = (
-        "🌿 أهلاً بك في بوت *أَثَــر*\n\n"
-        "أثرٌ يبقى في قلبك...\n\n"
-        "اختر من القائمة التالية:"
-    )
-    await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
+# 🎵 تلاوات مختارة
+@bot.message_handler(func=lambda m: m.text=="🎵 تلاوات مختارة")
+def show_user_rec(message):
+    chat_id = message.chat.id
+    recs = user_recitations.get(chat_id,[])
+    if not recs:
+        bot.send_message(chat_id,"لا توجد تلاوات محفوظة")
+        return
+    markup = InlineKeyboardMarkup()
+    for r in recs:
+        markup.add(InlineKeyboardButton(r["name"],callback_data=f"user_{r['url']}"))
+    bot.send_message(chat_id,"اختر تلاوة:",reply_markup=markup)
 
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+@bot.callback_query_handler(func=lambda c: c.data.startswith("user_"))
+def send_user_rec(call):
+    url = call.data.replace("user_","")
+    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
+    bot.send_audio(call.message.chat.id,url)
 
-    data = query.data
+@bot.message_handler(content_types=["audio"])
+def save_user_rec(message):
+    chat_id = message.chat.id
+    file_info = bot.get_file(message.audio.file_id)
+    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
+    rec_name = message.audio.file_name or f"تلاوة {len(user_recitations.get(chat_id,[]))+1}"
+    user_recitations.setdefault(chat_id,[]).append({"name":rec_name,"url":url})
+    bot.send_message(chat_id,f"تم حفظ التلاوة: {rec_name} ✅")
 
-    if data == "ayah":
-        ayah = random.choice(AYAT)
-        await query.edit_message_text(
-            f"🌟 *آية اليوم*\n\n{ayah}",
-            parse_mode="Markdown",
-            reply_markup=main_menu()
-        )
+# 📖 القرآن
+@bot.message_handler(func=lambda m: m.text=="📖 القرآن")
+def send_reciters(message):
+    markup = InlineKeyboardMarkup()
+    row=[]
+    for i, r in enumerate(reciters_data, start=1):
+        row.append(InlineKeyboardButton(r["name"],callback_data=f"reciter_{i-1}"))
+        if len(row)==3:
+            markup.add(*row); row=[]
+    if row: markup.add(*row)
+    bot.send_message(message.chat.id,"اختر القارئ:",reply_markup=markup)
 
-    elif data == "adhkar":
-        keyboard = [
-            [InlineKeyboardButton("🌅 الصباح", callback_data="morning")],
-            [InlineKeyboardButton("🌇 المساء", callback_data="evening")],
-            [InlineKeyboardButton("🌙 النوم", callback_data="sleep")],
-            [InlineKeyboardButton("⬅ رجوع", callback_data="back")]
-        ]
-        await query.edit_message_text(
-            "📿 اختر نوع الذكر:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+@bot.callback_query_handler(func=lambda c: c.data.startswith("reciter_"))
+def handle_reciter(call):
+    idx=int(call.data.split("_")[1])
+    rec=reciters_data[idx]
+    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
+    markup=InlineKeyboardMarkup()
+    # سور الـ 114
+    for i in range(1,115):
+        name=f"{i:03}"
+        markup.add(InlineKeyboardButton(f"سورة {name}",callback_data=f"sura_{idx}_{i}"))
+    # خيار الصفحات
+    if rec["has_pages"]:
+        markup.add(InlineKeyboardButton("📑 اختيار نطاق صفحات",callback_data=f"pages_{idx}"))
+    bot.send_message(call.message.chat.id,f"اختر السورة أو الصفحات لـ {rec['name']}:",reply_markup=markup)
 
-    elif data in ADHKAR:
-        await query.edit_message_text(
-            ADHKAR[data],
-            reply_markup=main_menu()
-        )
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sura_"))
+def send_sura(call):
+    parts=call.data.split("_")
+    idx=int(parts[1]); s_id=int(parts[2])
+    rec=reciters_data[idx]
+    audio_url=f"{rec['server']}/{s_id:03}.mp3"
+    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=None)
+    bot.send_audio(call.message.chat.id,audio_url)
 
-    elif data == "tasbeeh":
-        users = load_users()
-        user_id = str(query.from_user.id)
-        count = users[user_id]["tasbeeh"]
+# تشغيل البوت
+bot.infinity_polling()        count = users[user_id]["tasbeeh"]
 
         keyboard = [
             [InlineKeyboardButton("➕ سبح", callback_data="addtasbeeh")],
